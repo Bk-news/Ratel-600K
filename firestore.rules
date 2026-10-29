@@ -1,11 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /income/{id} {
-      allow read, write: if true;
+
+    // الحسابات الأربعة فقط (تُنشأ في Firebase Authentication بكلمات مرور تضعها أنت).
+    // أي حساب آخر لا يقرأ ولا يكتب شيئًا.
+    function isTeam() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'director@ratl600k.app',
+          'khalid@ratl600k.app',
+          'saleh@ratl600k.app',
+          'bassam@ratl600k.app'
+        ];
     }
-    match /activities/{id} {
-      allow read, write: if true;
-    }
+
+    match /income/{id}     { allow read, write: if isTeam(); }
+    match /activities/{id} { allow read, write: if isTeam(); }
   }
 }

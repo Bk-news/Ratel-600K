@@ -255,13 +255,34 @@ table.log{min-width:880px}
   .kpi{padding:14px 16px}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation:none!important}}
+
+.gate{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--ground)}
+.gate[hidden],.app[hidden]{display:none}
+.gate-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:28px;display:grid;gap:16px}
+.gate-card img{width:56px;height:auto}
+.gate-card h1{margin:0;font-size:24px;line-height:32px}
+.gate-card p{margin:0;color:var(--muted)}
+.gate-err{color:#9b1c1c;min-height:20px;font-size:var(--fs-small)}
+.who{display:grid;gap:6px;margin-top:8px}
+.who span{color:var(--muted);font-size:var(--fs-small)}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 </head>
 <body>
-<div class="app" dir="rtl" lang="ar">
+<div class="gate" id="gate" hidden dir="rtl" lang="ar">
+  <form class="gate-card" id="fLogin" novalidate>
+    <img src="" alt="" id="gateLogo">
+    <div><h1>لوحة حملة الـ 600 ألف</h1><p>جمعية رتّل لتحفيظ القرآن الكريم · نجران</p></div>
+    <div class="field"><label for="lgUser">الاسم</label><select class="input" id="lgUser" required></select></div>
+    <div class="field"><label for="lgPass">كلمة المرور</label><input class="input" id="lgPass" type="password" autocomplete="current-password" dir="ltr" required></div>
+    <button class="btn primary" type="submit" id="lgBtn">دخول</button>
+    <div class="gate-err" id="lgErr" role="alert"></div>
+  </form>
+</div>
+<div class="app" id="app" dir="rtl" lang="ar" hidden>
 
 <aside class="sidebar" id="side">
   <div class="product">
@@ -278,6 +299,7 @@ table.log{min-width:880px}
   <div class="side-bottom">
     <div class="live" id="live"><i></i><span id="liveTxt">جارٍ الاتصال</span></div>
     <div id="fresh">لم يصل أي تسجيل بعد</div>
+    <div class="who" id="who" hidden><span id="whoName"></span><button type="button" class="btn sm" id="btnLogout">خروج</button></div>
   </div>
 </aside>
 
@@ -816,17 +838,11 @@ function localDb(){
     }}
   })};
 }
-async function getDb(){
-  const cfg=window.FIREBASE_CONFIG;
-  if(cfg&&cfg.apiKey&&window.firebase){try{if(!firebase.apps.length)firebase.initializeApp(cfg);return {db:firebase.firestore(),mode:'firebase'}}catch(e){console.error(e)}}
-  return {db:localDb(),mode:'local'};
-}
-$('fav').href=document.querySelector('.product img').src;
-route();render();
-(async()=>{
-  const g=await getDb();db=g.db;
-  if(g.mode==='local'){$('dbNotice').hidden=false;$('dbNotice').textContent='وضع تجريبي: البيانات محفوظة على هذا الجهاز فقط. لتشاركها مع الفريق، أضف إعدادات Firebase في ملف firebase-config.js (الشرح في README).'}
-  $('live').classList.add('on');$('liveTxt').textContent=g.mode==='local'?'هذا الجهاز فقط':'مباشر';
+const MAIL=(window.ADMIN_EMAIL_DOMAIN||'ratl600k.app');
+const emailOf=id=>id+'@'+MAIL;
+function start(database,mode){
+  db=database;
+  $('live').classList.add('on');$('liveTxt').textContent=mode==='local'?'هذا الجهاز فقط':'مباشر';
   db.collection('income').onSnapshot(snap=>{
     income=snap.docs.map(d=>({id:d.id,...d.data()}));
     if(!firstIncome){
@@ -835,9 +851,49 @@ route();render();
       const fresh=added.filter(a=>Date.now()-Date.parse(a.createdAt||0)<5*60e3).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0];
       render();if(fresh)celebrate(fresh);
     } else {firstIncome=false;render()}
-  },err=>{console.error(err);$('live').classList.remove('on');$('liveTxt').textContent='انقطع الاتصال، أعد تحميل الصفحة'});
+  },err=>{console.error(err);$('live').classList.remove('on');$('liveTxt').textContent=err&&err.code==='permission-denied'?'الحساب غير مصرّح له':'انقطع الاتصال، أعد تحميل الصفحة'});
   db.collection('activities').onSnapshot(snap=>{acts=snap.docs.map(d=>({id:d.id,...d.data()}));render()},e=>console.error(e));
+}
+function showApp(){$('gate').hidden=true;$('app').hidden=false}
+function showGate(){$('app').hidden=true;$('gate').hidden=false;setTimeout(()=>$('lgPass').focus(),50)}
+$('gateLogo').src=document.querySelector('.product img').src;
+$('lgUser').innerHTML=MEMBERS.map(m=>'<option value="'+m.id+'">'+m.name+' · '+m.role+'</option>').join('');
+(function boot(){
+  const cfg=window.FIREBASE_CONFIG;
+  if(cfg&&cfg.apiKey&&window.firebase){
+    firebase.initializeApp(cfg);
+    const auth=firebase.auth();
+    let started=false;
+    auth.onAuthStateChanged(user=>{
+      if(user){
+        const m=MEMBERS.find(x=>emailOf(x.id)===user.email);
+        $('who').hidden=false;$('whoName').textContent=m?m.name:user.email;
+        showApp();
+        if(!started){started=true;start(firebase.firestore(),'firebase')}
+      } else showGate();
+    });
+    $('fLogin').addEventListener('submit',async e=>{
+      e.preventDefault();
+      const pass=$('lgPass').value;
+      if(!pass){$('lgErr').textContent='اكتب كلمة المرور.';return}
+      $('lgBtn').disabled=true;$('lgErr').textContent='';
+      try{await auth.signInWithEmailAndPassword(emailOf($('lgUser').value),pass)}
+      catch(err){
+        const c=err&&err.code||'';
+        $('lgErr').textContent=c==='auth/too-many-requests'?'محاولات كثيرة، انتظر قليلًا ثم أعد المحاولة.':c==='auth/network-request-failed'?'تعذّر الاتصال بالإنترنت.':'كلمة المرور غير صحيحة.';
+        $('lgPass').value='';
+      }
+      $('lgBtn').disabled=false;
+    });
+    $('btnLogout').addEventListener('click',async()=>{await auth.signOut();location.reload()});
+  } else {
+    showApp();start(localDb(),'local');
+    $('dbNotice').hidden=false;
+    $('dbNotice').textContent='وضع تجريبي: لا يوجد تسجيل دخول والبيانات محفوظة على هذا الجهاز فقط. لتفعيل كلمات المرور والمشاركة مع الفريق، أضف إعدادات Firebase في ملف firebase-config.js (الشرح في README).';
+  }
 })();
+$('fav').href=document.querySelector('.product img').src;
+route();render();
 })();
 </script>
 </body>
