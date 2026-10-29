@@ -270,6 +270,7 @@ table.log{min-width:880px}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
+<script src="auth-config.js"></script>
 </head>
 <body>
 <div class="gate" id="gate" hidden dir="rtl" lang="ar">
@@ -886,6 +887,23 @@ $('lgUser').innerHTML=MEMBERS.map(m=>'<option value="'+m.id+'">'+m.name+' · '+m
       $('lgBtn').disabled=false;
     });
     $('btnLogout').addEventListener('click',async()=>{await auth.signOut();location.reload()});
+  } else if(window.TEAM_AUTH&&window.TEAM_AUTH.users&&Object.keys(window.TEAM_AUTH.users).length){
+    const T=window.TEAM_AUTH,enc=new TextEncoder();
+    const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+    const hashOf=async(pw,salt)=>{const k=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveBits']);return hex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:enc.encode(salt),iterations:T.iter||200000},k,256))};
+    const enter=id=>{const m=MEMBERS.find(x=>x.id===id);$('who').hidden=false;$('whoName').textContent=m?m.name:id;showApp();start(localDb(),'local');$('dbNotice').hidden=false;$('dbNotice').textContent='البيانات محفوظة على هذا الجهاز فقط.'};
+    let sess=null;try{sess=sessionStorage.getItem('ratl600k_user')}catch(e){}
+    if(sess&&T.users[sess])enter(sess);else showGate();
+    $('fLogin').addEventListener('submit',async e=>{
+      e.preventDefault();const id=$('lgUser').value,pw=$('lgPass').value,u=T.users[id];
+      if(!pw){$('lgErr').textContent='اكتب كلمة المرور.';return}
+      $('lgBtn').disabled=true;$('lgErr').textContent='';
+      let ok=false;try{ok=!!u&&(await hashOf(pw,u.salt))===u.hash}catch(err){$('lgErr').textContent='المتصفح لا يدعم التحقق، افتح الرابط عبر https.';$('lgBtn').disabled=false;return}
+      if(ok){try{sessionStorage.setItem('ratl600k_user',id)}catch(e){}enter(id)}
+      else{$('lgErr').textContent='كلمة المرور غير صحيحة.';$('lgPass').value=''}
+      $('lgBtn').disabled=false;
+    });
+    $('btnLogout').addEventListener('click',()=>{try{sessionStorage.removeItem('ratl600k_user')}catch(e){}location.reload()});
   } else {
     showApp();start(localDb(),'local');
     $('dbNotice').hidden=false;
